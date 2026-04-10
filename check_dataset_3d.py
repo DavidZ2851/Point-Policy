@@ -5,7 +5,7 @@ import cv2
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-PKL_PATH = "/home/haotian/Point-Policy/data/pick_place_red_mug_1/processed_data_pkl/expert_demos/franka_env/pick_place_red_mug.pkl" 
+PKL_PATH = "/home/haotian/Point-Policy/data/pick_place_red_mug_human_debug/processed_data_pkl/expert_demos/franka_env/pick_place_red_mug.pkl" 
 
 with open(PKL_PATH, "rb") as f:
     traj = pickle.load(f)

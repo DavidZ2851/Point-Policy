@@ -1,30 +1,33 @@
-import pickle
-from pprint import pprint
 
-files = [
-    "/home/haotian/Point-Policy/bottle_on_rack.pkl",
-    "/home/haotian/Point-Policy/bowl_in_oven.pkl",
-    "/home/haotian/Point-Policy/bottle_upright.pkl",
-    "/home/haotian/Point-Policy/bread_on_plate.pkl",
-    "/home/haotian/Point-Policy/drawer_close.pkl",
-    "/home/haotian/Point-Policy/sweep_broom.pkl",
-]
+import pickle as pkl
+import numpy as np
 
-keys = [
-    "max_cartesian",
-    "min_cartesian",
-    "max_gripper",
-    "min_gripper",
-    "max_sensor",
-    "min_sensor",
-]
+with open('/home/haotian/Point-Policy/data/pick_place_red_mug_2/processed_data_pkl/expert_demos/franka_env/pick_place_red_mug.pkl', 'rb') as f:
+    data = pkl.load(f)
 
-for path in files:
-    print(f"\n=== {path} ===")
-    with open(path, "rb") as f:
-        traj = pickle.load(f)
+print(f'Type: {type(data)}')
+print()
 
-    print("dict_keys:", traj.keys())
-    for k in keys:
-        print(f"{k}:")
-        pprint(traj[k])
+if isinstance(data, dict):
+    for k, v in data.items():
+        if isinstance(v, (list, tuple)):
+            print(f'{k}: {type(v).__name__}, len={len(v)}')
+            if len(v) > 0:
+                item = v[0]
+                if isinstance(item, dict):
+                    print(f'  [0] keys: {list(item.keys())}')
+                    for kk, vv in item.items():
+                        if hasattr(vv, 'shape'):
+                            print(f'    {kk}: shape={vv.shape}, dtype={vv.dtype}')
+                        elif isinstance(vv, (list, tuple)):
+                            print(f'    {kk}: {type(vv).__name__}, len={len(vv)}')
+                        else:
+                            print(f'    {kk}: {type(vv).__name__} = {vv}')
+                elif hasattr(item, 'shape'):
+                    print(f'  [0]: shape={item.shape}, dtype={item.dtype}')
+                else:
+                    print(f'  [0]: {type(item).__name__}')
+        elif hasattr(v, 'shape'):
+            print(f'{k}: shape={v.shape}, dtype={v.dtype}')
+        else:
+            print(f'{k}: {type(v).__name__} = {v}')
