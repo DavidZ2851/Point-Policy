@@ -24,10 +24,7 @@ from scipy.spatial.transform import Rotation as R
 from scipy.ndimage import zoom
 
 from point_utils.points_class import PointsClass
-from utils import camera2pixelkey, pixel2d_to_3d_torch, triangulate_points
-
-from gripper_points import extrapoints, Tshift
-OFFSET = 0.033
+from utils import camera2pixelkey, pixel2d_to_3d_torch, triangulate_points, ee_pose_to_robot_points, project_points
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="Custom robot data -> point policy pkl pipeline")
@@ -102,73 +99,6 @@ def load_video_frames(video_path: Path):
         frames.append(frame)
     cap.release()
     return np.array(frames) if frames else None
-
-
-def ee_pose_to_robot_points(gripper_pcd, states_ee):
-    """
-    Args:
-        gripper_pcd: (T, 4, 3) gripper point cloud
-            [0] top
-            [1] right finger tip
-            [2] left finger tip
-            [3] grasp center / EE point
-    """
-    robot_points   = []
-    gripper_states = []
-
-    for t in range(len(gripper_pcd)):
-        pt1 = gripper_pcd[t, 1]  # right finger
-        pt2 = gripper_pcd[t, 2]  # left finger
-        dist = np.linalg.norm(pt1 - pt2)
-        gripper_state = -1 if dist > 0.05 else 1  # -1=open, 1=closed
-
-        ee_pos = gripper_pcd[t, 3]  # grasp center (3,)
-       
-        ee_wxyz = states_ee[t, 3:7]  # (w, x, y, z)
-        ee_rot = R.from_quat(ee_wxyz[[1, 2, 3, 0]])  # convert to (x, y, z, w) for scipy
-        ee_rot_mat = ee_rot.as_matrix()  # (3, 3)
-        ee_pos = ee_pos - ee_rot_mat[:, 2] * OFFSET
-        # build T_ee from EE position
-        # we don't have orientation from pcd alone, use identity rotation
-        T_ee = np.eye(4)
-        T_ee[:3, 3] = ee_pos
-        T_ee[:3, :3] = ee_rot_mat
-        T_ee = T_ee @ Tshift
-
-        points3d = [T_ee[:3, 3]]
-
-        for tp_idx, Tp in enumerate(extrapoints):
-            if gripper_state == 1 and tp_idx in [0, 1]:
-                Tp = Tp.copy()
-                Tp[1, 3] = 0.015 if tp_idx == 0 else -0.015
-            pt = T_ee @ Tp
-            points3d.append(pt[:3, 3])
-
-        robot_points.append(np.array(points3d))
-        gripper_states.append(gripper_state)
-
-    return np.array(robot_points), np.array(gripper_states)
-
-
-def project_points(robot_points, object_points, camera_name):
-    """Project 3D points to 2D pixels using calibration."""
-    P = calibration_data[camera_name]["ext"]
-    K = calibration_data[camera_name]["int"]
-    D = calibration_data[camera_name]["dist_coeff"]
-    r, t   = P[:3, :3], P[:3, 3]
-    rvec, _ = cv2.Rodrigues(r)
-
-    robot_2d = []
-    for pts3d in robot_points:
-        pts2d = cv2.projectPoints(pts3d[:, :3], rvec, t, K, D)[0].squeeze()
-        robot_2d.append(pts2d)
-
-    object_2d = []
-    for pts3d in object_points:
-        pts2d = cv2.projectPoints(pts3d[:, :3].reshape(-1, 3), rvec, t, K, D)[0].squeeze()
-        object_2d.append(pts2d)
-
-    return np.array(robot_2d), np.array(object_2d)
 
 
 # ── collect episodes ──────────────────────────────────────────────────────────
@@ -333,7 +263,7 @@ for ep_idx, ep_dir in enumerate(all_episode_dirs):
         observation[f"object_tracks_3d_{pixel_key}"] = object_points_3d
 
         # project to 2D
-        robot_2d, object_2d = project_points(robot_points, object_points_3d, camera_name)
+        robot_2d, object_2d = project_points(calibration_data, robot_points, object_points_3d, camera_name)
         observation[f"robot_tracks_{pixel_key}"]  = robot_2d
         observation[f"object_tracks_{pixel_key}"] = object_2d
 

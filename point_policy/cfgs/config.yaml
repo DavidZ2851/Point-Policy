@@ -7,7 +7,7 @@ defaults:
 
 # Dir
 root_dir: /home/haotian/Point-Policy
-data_dir: /home/haotian/Point-Policy/data/pick_place_red_mug_robot/processed_data_pkl/expert_demos
+data_dir: /home/haotian/Point-Policy/data/pick_place_red_mug_human_filter/processed_data_pkl/expert_demos
 
 # misc
 seed: 2

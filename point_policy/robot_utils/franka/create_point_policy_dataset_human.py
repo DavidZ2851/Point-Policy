@@ -46,6 +46,16 @@ process_points = args.process_points
 use_gt_depth   = args.use_gt_depth
 OUTPUT_DIR     = Path(args.output_dir)
 
+ROBOT_RESET_POINT = np.array([[ 3.59703113e-01,  2.47755790e-08,  4.78416715e-01],
+       [ 3.59702964e-01, -3.99999497e-02,  3.18416708e-01],
+       [ 3.59702985e-01,  4.00000503e-02,  3.18416721e-01],
+       [ 3.59703044e-01,  3.75298611e-08,  3.98416715e-01],
+       [ 3.59703030e-01, -4.99999625e-02,  3.98416707e-01],
+       [ 3.59703057e-01,  5.00000375e-02,  3.98416723e-01],
+       [ 3.59703078e-01,  3.11527200e-08,  4.38416715e-01],
+       [ 3.59703065e-01, -4.99999688e-02,  4.38416707e-01],
+       [ 3.59703092e-01,  5.00000312e-02,  4.38416723e-01]])
+
 # ── LeRobot paths ─────────────────────────────────────────────────────────────
 CAM_FRONT_COLOR = "observation.images.cam_azure_kinect_front.color"
 CAM_LEFT_COLOR  = "observation.images.cam_azure_kinect_left.color"
@@ -107,6 +117,84 @@ if process_points:
     points_class = PointsClass(**cfg)
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def prepend_initial_frames(observation, robot_points_3d, num_frames=30):
+    """Prepend N initial frames with interpolated waypoints from ROBOT_POINTS to first frame."""
+    for cam_idx in camera_indices:
+        camera_name = f"cam_{cam_idx}"
+        pixel_key = camera2pixelkey[camera_name]
+        
+        # Prepend first image repeated num_frames times
+        observation[pixel_key] = np.concatenate([
+            np.repeat(observation[pixel_key][:1], num_frames, axis=0),
+            observation[pixel_key]
+        ], axis=0)
+        
+        if use_gt_depth:
+            depth_key = f"depth_{pixel_key}"
+            observation[depth_key] = np.concatenate([
+                np.repeat(observation[depth_key][:1], num_frames, axis=0),
+                observation[depth_key]
+            ], axis=0)
+        
+        # Interpolate robot waypoints from robot_points_3d to first frame's robot position
+        first_robot_pos = observation[f"robot_tracks_3d_{pixel_key}"][0]  # (N, 3)
+        
+        # Generate interpolated waypoints
+        waypoints_3d = []
+        for i in range(num_frames):
+            alpha = i / num_frames  # 0, 1/num_frames, 2/num_frames, ...
+            interpolated = (1 - alpha) * robot_points_3d + alpha * first_robot_pos
+            waypoints_3d.append(interpolated)
+        waypoints_3d = np.array(waypoints_3d)  # (num_frames, N, 3)
+        
+        observation[f"robot_tracks_3d_{pixel_key}"] = np.concatenate([
+            waypoints_3d,
+            observation[f"robot_tracks_3d_{pixel_key}"]
+        ], axis=0)
+        
+        # Prepend object tracks (duplicate first frame num_frames times)
+        observation[f"object_tracks_3d_{pixel_key}"] = np.concatenate([
+            np.repeat(observation[f"object_tracks_3d_{pixel_key}"][:1], num_frames, axis=0),
+            observation[f"object_tracks_3d_{pixel_key}"]
+        ], axis=0)
+        
+        # Project interpolated waypoints to 2D
+        P = calibration_data[camera_name]["ext"]
+        K = calibration_data[camera_name]["int"]
+        D = calibration_data[camera_name]["dist_coeff"]
+        r, t = P[:3, :3], P[:3, 3]
+        rvec, _ = cv2.Rodrigues(r)
+        
+        waypoints_2d = []
+        for pts3d in waypoints_3d:
+            pts2d = cv2.projectPoints(pts3d[:, :3], rvec, t, K, D)[0].squeeze()
+            waypoints_2d.append(pts2d)
+        waypoints_2d = np.array(waypoints_2d)  # (num_frames, N, 2)
+        
+        observation[f"robot_tracks_{pixel_key}"] = np.concatenate([
+            waypoints_2d,
+            observation[f"robot_tracks_{pixel_key}"]
+        ], axis=0)
+        
+        # Prepend object tracks 2D
+        observation[f"object_tracks_{pixel_key}"] = np.concatenate([
+            np.repeat(observation[f"object_tracks_{pixel_key}"][:1], num_frames, axis=0),
+            observation[f"object_tracks_{pixel_key}"]
+        ], axis=0)
+    
+    # Prepend gripper state and human poses
+    observation["gripper_states"] = np.concatenate([
+        np.repeat(observation["gripper_states"][:1], num_frames, axis=0),
+        observation["gripper_states"]
+    ], axis=0)
+    observation["human_poses"] = np.concatenate([
+        np.repeat(observation["human_poses"][:1], num_frames, axis=0),
+        observation["human_poses"]
+    ], axis=0)
+    
+    return observation
+
 def load_video_frames(video_path: Path):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -397,8 +485,13 @@ for ep_idx, (video_root, ep_file) in enumerate(all_episode_files):
                 observation[f"human_tracks_3d_{pixel_key}"] = np.array(observation[f"human_tracks_3d_{pixel_key}"])
 
     # ── convert human -> robot tracks ─────────────────────────────────────────
-    observation = convert_human_to_robot_tracks(observation)
-    observations.append(observation)
+    if process_points:
+        observation = convert_human_to_robot_tracks(observation)
+        observation = prepend_initial_frames(observation, ROBOT_RESET_POINT, num_frames=60)
+        observations.append(observation)
+    else:
+        print(f"  Skipping {ep_stem} - process_points is False")
+        continue
 
 # ── save ──────────────────────────────────────────────────────────────────────
 data = {
