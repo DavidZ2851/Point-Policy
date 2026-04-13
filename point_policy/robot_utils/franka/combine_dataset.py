@@ -11,6 +11,7 @@ import argparse
 import pickle as pkl
 from pathlib import Path
 import numpy as np
+import random
 
 
 def load_dataset(path: Path) -> dict:
@@ -34,15 +35,20 @@ def parse_input_spec(spec: str) -> tuple[Path, int | None]:
         return Path(spec), None  # None means all
 
 
-def combine_datasets(datasets: list[tuple[dict, int | None]]) -> dict:
-    """Combine multiple datasets into one."""
+def combine_datasets(datasets: list[tuple[dict, int | None]], seed: int = 42) -> dict:
+    """Combine multiple datasets into one with random sampling."""
+    
+    random.seed(seed)
+    np.random.seed(seed)
     
     # Combine observations (list of episodes)
     all_observations = []
     for data, num_demos in datasets:
         obs = data["observations"]
-        if num_demos is not None:
-            obs = obs[:num_demos]
+        if num_demos is not None and num_demos < len(obs):
+            # Random sample instead of taking first N
+            indices = random.sample(range(len(obs)), num_demos)
+            obs = [obs[i] for i in sorted(indices)]
         all_observations.extend(obs)
     
     # Combine min/max statistics by taking global min/max
@@ -86,14 +92,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Take 10 demos from data1.pkl and all demos from data2.pkl
+  # Take 10 random demos from data1.pkl and all demos from data2.pkl
   python combine_datasets.py --input data1.pkl:10 data2.pkl --output-dir /path/to/output
 
-  # Take 5 demos from each with custom name
+  # Take 5 random demos from each with custom name
   python combine_datasets.py --input data1.pkl:5 data2.pkl:5 --output-dir /path/to/output --name combined
 
   # Explicitly specify 'all'
   python combine_datasets.py --input data1.pkl:10 data2.pkl:all --output-dir /path/to/output
+
+  # With custom seed for reproducibility
+  python combine_datasets.py --input data1.pkl:10 data2.pkl:20 --output-dir /path/to/output --seed 123
         """
     )
     parser.add_argument("--input", "-i", nargs="+", type=str, required=True,
@@ -102,7 +111,13 @@ Examples:
                         help="Output directory (will create processed_data_pkl/expert_demos/franka_env/)")
     parser.add_argument("--name", "-n", type=str, default=None,
                         help="Output filename (without .pkl). Defaults to first input file's name.")
+    parser.add_argument("--seed", "-s", type=int, default=42,
+                        help="Random seed for reproducibility (default: 42)")
     args = parser.parse_args()
+    
+    # Set seed early
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     
     # Parse input specifications
     input_specs = [parse_input_spec(spec) for spec in args.input]
@@ -114,7 +129,7 @@ Examples:
         # Use first input file's name
         output_name = input_specs[0][0].stem
     
-    print(f"Combining {len(input_specs)} datasets:")
+    print(f"Combining {len(input_specs)} datasets (seed={args.seed}):")
     
     # Load all datasets
     datasets = []
@@ -123,13 +138,13 @@ Examples:
         data = load_dataset(path)
         available = len(data["observations"])
         using = min(num_demos, available) if num_demos is not None else available
-        print(f"  - {path.name}: using {using}/{available} episodes")
+        print(f"  - {path.name}: using {using}/{available} episodes (random sample)")
         total_episodes += using
         datasets.append((data, num_demos))
     
     # Combine
     print(f"\nCombining {total_episodes} total episodes...")
-    combined = combine_datasets(datasets)
+    combined = combine_datasets(datasets, seed=args.seed)
     
     # Print combined info
     print_dataset_info(combined, "Combined Dataset")
