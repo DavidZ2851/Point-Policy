@@ -202,7 +202,7 @@ def robot_points_to_ee_pose_with_gripper(robot_points, gripper_state):
     """
     ee_pos, ee_quat = robot_points_to_ee_pose(robot_points)
 
-    gripper = (gripper_state + 1) / 2
+    gripper = np.array([0]) if gripper_state < 0 else np.array([1])  # convert back to 0=open, 1=closed
     
     return np.concatenate([ee_pos, ee_quat, gripper])
 
