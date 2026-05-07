@@ -171,79 +171,50 @@ def eef_pose_to_gripper_pcd(
     return pcd_world
 
 
-def gripper_pcd_to_robot_points(
-    gripper_pcd: np.ndarray,
+def eef_poses_to_robot_points(
+    eef_poses: np.ndarray,
+    gripper_widths: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Convert (T, 4, 3) gripper PCD to 9 robot points + gripper states,
-    using the same extrapoints / Tshift logic as the robot script.
+    Convert EEF poses directly to 9 robot points + gripper states.
+    Uses the rotation matrix from rot6d instead of reconstructing from PCD,
+    avoiding orientation corruption when the gripper is closed (gw=0).
 
-    The 4 source points are:
-        [0] top        [1] right finger   [2] left finger   [3] grasp centre
+    Parameters
+    ----------
+    eef_poses      : (T, 9)  [x, y, z, rot6d_0..5]
+    gripper_widths : (T,)    physical finger half-width (metres)
 
     Returns
     -------
     robot_points   : (T, 9, 3)
     gripper_states : (T,)   -1 = open, 1 = closed
     """
-    T = len(gripper_pcd)
+    T = len(eef_poses)
+    rot_mats = rot6d_to_matrix(eef_poses[:, 3:9])  # (T, 3, 3)
+    pos      = eef_poses[:, :3]                    # (T, 3)
+
     robot_points_list   = []
     gripper_states_list = []
 
     for t in range(T):
-        grasp_pos   = gripper_pcd[t, 3]          # (3,) — grasp centre
-        right_pt    = gripper_pcd[t, 1]          # right finger tip
-        left_pt     = gripper_pcd[t, 2]          # left  finger tip
-        top_pt      = gripper_pcd[t, 0]          # top point
+        gripper_state = 1 if gripper_widths[t] < GRIPPER_CLOSED_THRESH / 2 else -1
 
-        # ── reconstruct orientation from the 4 points ─────────────────────
-        # Z axis: from grasp centre to top point (local -Z is toward top)
-        z_axis = top_pt - grasp_pos
-        z_norm = np.linalg.norm(z_axis)
-        if z_norm > 1e-6:
-            z_axis = -z_axis / z_norm   # flip so local Z points away from top
-        else:
-            z_axis = np.array([0., 0., 1.])
-
-        # Y axis: from grasp centre toward right finger
-        y_axis = right_pt - grasp_pos
-        y_norm = np.linalg.norm(y_axis)
-        if y_norm > 1e-6:
-            y_axis = y_axis / y_norm
-        else:
-            y_axis = np.array([0., 1., 0.])
-
-        # X axis: orthogonal
-        x_axis = np.cross(y_axis, z_axis)
-        x_norm = np.linalg.norm(x_axis)
-        if x_norm > 1e-6:
-            x_axis = x_axis / x_norm
-
-        rot = np.stack([x_axis, y_axis, z_axis], axis=1)  # (3, 3) col vectors
-
-        # ── gripper state ─────────────────────────────────────────────────
-        finger_dist = np.linalg.norm(right_pt - left_pt)
-        gripper_state = 1 if finger_dist < GRIPPER_CLOSED_THRESH else -1
-
-        # ── build 4x4 transform T_g_b and apply Tshift ────────────────────
         T_g_b = np.eye(4)
-        T_g_b[:3, :3] = rot
-        T_g_b[:3, 3]  = grasp_pos
+        T_g_b[:3, :3] = rot_mats[t]
+        T_g_b[:3, 3]  = pos[t] - rot_mats[t, :, 2] * 0.033
         T_g_b          = T_g_b @ Tshift
 
-        # First point: Tshift-adjusted origin
         points3d = [T_g_b[:3, 3]]
 
-        # Remaining 8 points via extrapoints (same as human script)
         for tp_idx, Tp in enumerate(extrapoints):
             Tp_use = Tp.copy()
             if gripper_state == 1 and tp_idx in [0, 1]:
-                # Closed: pinch fingers inward
                 Tp_use[1, 3] = 0.015 if tp_idx == 0 else -0.015
             pt = T_g_b @ Tp_use
             points3d.append(pt[:3, 3])
 
-        robot_points_list.append(np.array(points3d))   # (9, 3)
+        robot_points_list.append(np.array(points3d))
         gripper_states_list.append(gripper_state)
 
     return np.array(robot_points_list), np.array(gripper_states_list)
@@ -391,9 +362,8 @@ for ep_idx in episode_indices:
     if skip:
         continue
 
-    # ── build gripper PCD and robot points ────────────────────────────────
-    g_pcd        = eef_pose_to_gripper_pcd(eef_poses, gripper_widths)  # (T,4,3)
-    robot_points, gripper_states = gripper_pcd_to_robot_points(g_pcd)  # (T,9,3), (T,)
+    # ── build robot points directly from EEF poses ───────────────────────
+    robot_points, gripper_states = eef_poses_to_robot_points(eef_poses, gripper_widths)  # (T,9,3), (T,)
     observation["gripper_states"] = gripper_states
 
     print(f"  robot_points : {robot_points.shape}")
