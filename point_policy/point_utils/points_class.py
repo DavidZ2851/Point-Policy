@@ -77,7 +77,7 @@ class PointsClass:
             # Initialize MediaPipe Hands
             mp_hands = mp.solutions.hands
             self.hands = mp_hands.Hands(
-                static_image_mode=True, max_num_hands=1, min_detection_confidence=0.1
+                static_image_mode=True, max_num_hands=1, min_detection_confidence=0.3
             )
             self.hand_tracks = {pixel_key: None for pixel_key in self.pixel_keys}
 
