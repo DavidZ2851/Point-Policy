@@ -3,4 +3,4 @@ defaults:
 
 task_name: pick_place_toys
 object_labels: [objects]
-num_object_points: 10
+num_object_points: 7
