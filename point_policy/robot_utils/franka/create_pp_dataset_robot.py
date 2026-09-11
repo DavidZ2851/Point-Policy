@@ -52,7 +52,7 @@ save_img_size     = (
     int(original_img_size[0] * (crop_w[1] - crop_w[0])),
     int(original_img_size[1] * (crop_h[1] - crop_h[0])),
 )
-save_image_size   = (256, 256)
+save_image_size   = (128, 128)
 
 object_labels     = ["objects"]  # no human hand for robot demos
 
@@ -157,6 +157,16 @@ for ep_idx, ep_dir in enumerate(all_episode_dirs):
         print(f"  {pixel_key}: {frames.shape}")
     if skip:
         continue
+
+    # trim every stream to the common length -- a camera can drop frames, which
+    # leaves the two views (and the trajectory) out of sync
+    T = min([len(gripper_pcd)] + [len(observation[pk]) for _, pk in cam_map.values()])
+    if any(len(observation[pk]) != T for _, pk in cam_map.values()) or len(gripper_pcd) != T:
+        print(f"  WARNING: length mismatch, trimming all streams to {T}")
+        for _, pixel_key in cam_map.values():
+            observation[pixel_key] = observation[pixel_key][:T]
+        gripper_pcd = gripper_pcd[:T]
+        states_ee = states_ee[:T]
 
     # ── compute robot points from EE poses ────────────────────────────────────
     robot_points, gripper_states = ee_pose_to_robot_points(gripper_pcd, states_ee)

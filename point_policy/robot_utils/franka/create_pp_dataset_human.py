@@ -30,6 +30,7 @@ from gripper_points import extrapoints, Tshift
 # ── argument parsing ──────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="Combined LeRobot -> point policy pkl pipeline")
 parser.add_argument("--data_dir", type=str, required=True, nargs="+")
+parser.add_argument("--skip_demo", type=int, default=[], nargs="+")
 parser.add_argument("--calib_path",     type=str, required=True)
 parser.add_argument("--task_name",      type=str, required=True)
 parser.add_argument("--num_demos",      type=int, default=None)
@@ -347,6 +348,10 @@ for ep_idx, (video_root, ep_file) in enumerate(all_episode_files):
     ep_stem = ep_file.stem
     print(f"\n[{ep_idx+1}/{len(all_episode_files)}] Processing {ep_stem} from {video_root} ...")
 
+    if ep_idx in args.skip_demo:
+        print(f"  Skipping demo {ep_idx} (in --skip_demo list).")
+        continue
+
     observation = {}
     skip = False
 
@@ -395,7 +400,7 @@ for ep_idx, (video_root, ep_file) in enumerate(all_episode_files):
             try:
                 points_class.track_points(pixel_key, last_n_frames=mark_every, is_first_step=True)
             except Exception as e:
-                print(f"  Error tracking: {e}")
+                print(f"  Error tracking: {e}, cam indice {cam_idx}, skipping episode.")
                 points_class.reset_episode()
                 save = False
                 continue

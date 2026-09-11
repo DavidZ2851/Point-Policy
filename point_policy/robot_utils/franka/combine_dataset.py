@@ -35,9 +35,11 @@ def parse_input_spec(spec: str) -> tuple[Path, int | None]:
         return Path(spec), None  # None means all
 
 
-def combine_datasets(datasets: list[tuple[dict, int | None]], seed: int = 42) -> dict:
+def combine_datasets(datasets: list[tuple[dict, int | None]], seed: int = 42, no_pixels: bool = False) -> dict:
     """Combine multiple datasets into one with random sampling."""
     
+    PIXEL_KEYS = {'pixels1', 'pixels2'}
+
     random.seed(seed)
     np.random.seed(seed)
     
@@ -49,6 +51,10 @@ def combine_datasets(datasets: list[tuple[dict, int | None]], seed: int = 42) ->
             # Random sample instead of taking first N
             indices = random.sample(range(len(obs)), num_demos)
             obs = [obs[i] for i in sorted(indices)]
+
+        if no_pixels:
+            obs = [{k: v for k, v in episode.items() if k not in PIXEL_KEYS} for episode in obs]
+
         all_observations.extend(obs)
     
     # Combine min/max statistics by taking global min/max
@@ -71,20 +77,19 @@ def combine_datasets(datasets: list[tuple[dict, int | None]], seed: int = 42) ->
 
 
 def print_dataset_info(data: dict, name: str = "Dataset"):
-    """Print dataset structure info."""
     print(f"\n{name}:")
     print(f"  Episodes: {len(data['observations'])}")
-    
     if len(data['observations']) > 0:
-        lengths = [obs['pixels1'].shape[0] for obs in data['observations']]
-        print(f"  Episode lengths: min={min(lengths)}, max={max(lengths)}, mean={np.mean(lengths):.1f}")
-        print(f"  Episode keys: {list(data['observations'][0].keys())}")
-    
+        first_ep = data['observations'][0]
+        print(f"  Episode keys: {list(first_ep.keys())}")
+        if 'gripper_states' in first_ep:
+            lengths = [obs['gripper_states'].shape[0] for obs in data['observations'] if 'gripper_states' in obs]
+            if lengths:
+                print(f"  Episode lengths: min={min(lengths)}, max={max(lengths)}, mean={np.mean(lengths):.1f}")
     print(f"  max_cartesian: {data['max_cartesian']}")
     print(f"  min_cartesian: {data['min_cartesian']}")
     print(f"  max_gripper: {data['max_gripper']}")
     print(f"  min_gripper: {data['min_gripper']}")
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -113,6 +118,8 @@ Examples:
                         help="Output filename (without .pkl). Defaults to first input file's name.")
     parser.add_argument("--seed", "-s", type=int, default=42,
                         help="Random seed for reproducibility (default: 42)")
+    parser.add_argument("--no-pixels", action="store_true",
+                        help="If set, will remove pixel data from combined dataset to save space.")
     args = parser.parse_args()
     
     # Set seed early
@@ -144,10 +151,9 @@ Examples:
     
     # Combine
     print(f"\nCombining {total_episodes} total episodes...")
-    combined = combine_datasets(datasets, seed=args.seed)
+    combined = combine_datasets(datasets, seed=args.seed, no_pixels=args.no_pixels)
     
-    # Print combined info
-    print_dataset_info(combined, "Combined Dataset")
+    
     
     # Create output directory structure
     output_dir = Path(args.output_dir) / "processed_data_pkl" / "expert_demos" / "franka_env"
@@ -159,6 +165,8 @@ Examples:
         pkl.dump(combined, f)
     
     print(f"\nSaved to {output_path}")
+    # Print combined info
+    print_dataset_info(combined, "Combined Dataset")
 
 
 if __name__ == "__main__":

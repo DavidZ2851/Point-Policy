@@ -101,7 +101,8 @@ def ee_pose_to_robot_points(gripper_pcd, states_ee):
         pt1 = gripper_pcd[t, 1]  # right finger
         pt2 = gripper_pcd[t, 2]  # left finger
         dist = np.linalg.norm(pt1 - pt2)
-        gripper_state = -1 if dist > 0.05 else 1  # -1=open, 1=closed
+
+        gripper_state = -1 if dist > 0.05 else 1  # -1=open, 1=closed #   0.09
 
         ee_pos = gripper_pcd[t, 3]  # grasp center (3,)
        

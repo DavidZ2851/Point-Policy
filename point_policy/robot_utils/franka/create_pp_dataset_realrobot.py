@@ -44,7 +44,7 @@ FINGER_OPEN_Y   = 0.05   # half-width when fully open
 FINGER_CLOSED_Y = 0.00  # half-width when fully closed
 
 # Gripper-state threshold: distance (m) below which fingers are considered closed.
-GRIPPER_CLOSED_THRESH = 0.05
+GRIPPER_CLOSED_THRESH = 0.05 # 0.09
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(
